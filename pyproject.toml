@@ -1,0 +1,36 @@
+[tool.poetry]
+name = "erp-celery-poc"
+version = "0.1.0"
+description = "Standalone POC extracting erp-managment's Flask+Celery+Beat pattern to reproduce and fix Beat/worker reliability bugs in isolation."
+authors = ["Settle ERP Team"]
+readme = "README.md"
+packages = [{ include = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+flask = "^3.0.3"
+flask-sqlalchemy = "^3.1.1"
+flask-migrate = "^4.0.7"
+celery = { version = "5.4.0", extras = ["sqlalchemy"] }
+kombu = "5.4.0"          # provides the `sqla+` broker transport used here (kombu.transport.sqlalchemy) -- matches erp-managment's actual broker, NOT a Redis client usage
+sqlalchemy = "2.0.29"
+psycopg2-binary = "^2.9.9"
+sqlalchemy-celery-beat = "0.8.0"
+python-dotenv = "^1.0.1"
+gunicorn = "^23.0.0"
+requests = "^2.32.0"
+flower = "^2.0.1"
+
+# NOTE: the real erp-managment service depends on the private git package
+# `backend-common` (git@github.com:settle-payments/be-package.git) for its
+# `Logger`/`BucketHandler` helpers. That repo is not reachable from this
+# sandbox/POC, so it is intentionally omitted here -- see
+# src/handler/logger.py for a local drop-in stub with the same call
+# surface. To wire the real dependency back in, add:
+#   backend-common = { git = "git@github.com:settle-payments/be-package.git" }
+# and swap the `from src.handler.logger import Logger` imports for
+# `from backend_common import Logger`.
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

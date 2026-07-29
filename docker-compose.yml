@@ -1,0 +1,126 @@
+# FIX #4/#5 (was: no restart:/healthcheck: anywhere, and a host:container
+# port mismatch -- host 10000:10000 vs the app binding 5007 inside the
+# container). Every long-running service below now has a restart policy
+# and a healthcheck, and the app's port is consistently 5007 end to end.
+#
+# Beat, Gunicorn (web), and the Celery worker are three SEPARATE services
+# (best-practice shape, not erp-managment's current "beat+gunicorn bundled
+# in one container" pattern):
+#   - Beat MUST be a strict singleton -- never scaled beyond 1 replica --
+#     while `web` is exactly the kind of thing you *do* want to scale
+#     horizontally. Bundling them forces you to work around that (e.g. via
+#     SERVICE_TYPE flags/leader election) instead of it being true by
+#     construction.
+#   - Each service now runs exactly ONE process (see run.sh), so a crash
+#     only takes down its own container -- Docker's `restart:` policy
+#     handles it per-service, with no need for the in-container
+#     multi-process supervision (`wait -n`/trap) the combined version
+#     needed.
+#   - `beat` gets its own healthcheck reflecting ITS OWN liveness
+#     (`scripts/beat_healthcheck.py`, checking `beatTime` freshness
+#     directly against Postgres), instead of piggybacking on `web`'s HTTP
+#     `/health` endpoint.
+
+x-app-env: &app-env
+  POSTGRES_URL: postgresql://postgres:postgres@postgres:5432/erp_celery_poc
+  SCHEMA_NAME: erp_celery_poc
+  CELERY_RESULT_BACKEND: db+postgresql://postgres:postgres@postgres:5432/erp_celery_poc
+  # Broker = Postgres via kombu's `sqla+` transport (matches
+  # erp-managment's `.env`), NOT Redis -- see src/config/config.py.
+  CELERY_BROKER_URL: sqla+postgresql://postgres:postgres@postgres:5432/erp_celery_poc
+  DB_WRITE_TASK_INTERVAL_SECONDS: "15"
+  # Shortened for local demo purposes (real service: hourly cleanup /
+  # 1-day retention, see .env.example) so the purge is observable quickly.
+  KOMBU_MESSAGE_CLEANUP_INTERVAL_SECONDS: "30"
+  KOMBU_MESSAGE_RETENTION_SECONDS: "10"
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: erp_celery_poc
+    ports:
+      - "5544:5432"
+    volumes:
+      - poc_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+    image: erp-celery-poc
+    environment:
+      <<: *app-env
+      SERVICE_TYPE: web
+      PORT: "5007"
+    ports:
+      - "5007:5007"
+    volumes:
+      - .:/var/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:5007/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+
+  # Celery Beat -- the scheduler. Deliberately NOT scaled (no `replicas:`
+  # override, no ports) -- exactly one of these should ever run.
+  beat:
+    build:
+      context: .
+    image: erp-celery-poc
+    environment:
+      <<: *app-env
+      SERVICE_TYPE: beat
+    volumes:
+      - .:/var/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "scripts/beat_healthcheck.py"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+    image: erp-celery-poc
+    environment:
+      <<: *app-env
+      SERVICE_TYPE: worker
+    volumes:
+      - .:/var/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # NOTE: `celery inspect ping` does NOT work here -- it relies on a
+      # fanout-capable broker (pidbox), which kombu's `sqla+` transport
+      # does not support (confirmed: reliably fails with "No nodes replied
+      # within time constraint" even on a healthy worker). Use a
+      # broker-agnostic process-liveness check instead.
+      test: ["CMD", "python3", "scripts/worker_healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  poc_pg_data:
