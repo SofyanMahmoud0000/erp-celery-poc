@@ -2,7 +2,7 @@ from typing import Optional
 
 from celery import Celery
 from celery.contrib.abortable import AbortableTask
-from celery.signals import before_task_publish
+from celery.signals import before_task_publish, worker_process_init
 from flask import Flask
 
 from .config import settings
@@ -97,6 +97,40 @@ def log_before_task_publish(sender=None, headers=None, routing_key=None, **kwarg
     # process's lifetime by the module's own namespace.
     task_id = (headers or {}).get('id')
     logger.info(f"[QUEUE INSERT] name={sender} id={task_id} routing_key={routing_key}")
+
+
+@worker_process_init.connect
+def dispose_engine_after_fork(**kwargs):
+    # FIX #7 (psycopg2 connections are not fork-safe): app.py's module-level
+    # `app = init_app()` opens a real SQLAlchemy/psycopg2 connection (via
+    # db.create_all()) before Celery's prefork pool forks any worker child.
+    # Each forked child inherits a *copy* of that connection pool, including
+    # the live OS socket -- if two processes then use the same socket, the
+    # libpq protocol state desyncs, surfacing as nonsense errors like
+    # `psycopg2.DatabaseError: ... PGRES_TUPLES_OK and no message from the
+    # libpq` or `sqlalchemy.exc.ResourceClosedError: ... does not return
+    # rows` (seen on the post-commit attribute-refresh SELECT). This signal
+    # fires in each child immediately after fork, before it picks up any
+    # task, so disposing here forces every subsequent query in that child to
+    # open a brand-new connection nobody else has ever touched.
+    #
+    # `close=False` is required, not optional: the plain `dispose()` default
+    # actually CLOSES the inherited connections, i.e. sends real
+    # close/terminate bytes down the socket -- but that socket's underlying
+    # fd is still shared with the parent (and siblings forked at the same
+    # time), so closing it from here can itself race with whatever they're
+    # doing on it. Verified locally: with plain `dispose()`, the same
+    # PGRES_TUPLES_OK/ResourceClosedError errors kept happening for several
+    # minutes after every worker startup (all initial ForkPoolWorker-N
+    # children racing their own dispose() against each other), only settling
+    # once a task's hard time limit killed and replaced one of them. With
+    # `close=False`, the pool's references are dropped without touching the
+    # shared socket at all, so there's nothing left to race.
+    from app import app
+    from src.models import db
+
+    with app.app_context():
+        db.engine.dispose(close=False)
 
 
 def register_schedule_tasks(celery: Celery):

@@ -3,6 +3,7 @@ import uuid
 from src.config import celery, settings
 from src.models import db
 from src.models.tasks import Task
+import time
 
 logger = settings.logger
 
@@ -24,6 +25,7 @@ class DemoController:
     @staticmethod
     @celery.task(bind=True)
     def db_write_task(self):
+        time.sleep(35)
         task = Task()
         task.id = uuid.uuid4()
         task.type = "demo"

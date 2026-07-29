@@ -44,15 +44,15 @@ class Settings:
 
     # How often the demo periodic task runs (seconds). Kept short for
     # local/demo purposes -- real service uses minutes.
-    DB_WRITE_TASK_INTERVAL_SECONDS = int(os.getenv("DB_WRITE_TASK_INTERVAL_SECONDS", 15))
+    DB_WRITE_TASK_INTERVAL_SECONDS = int(os.getenv("DB_WRITE_TASK_INTERVAL_SECONDS", 5))
 
     CELERY_NETWORK_FAILURE_MAX_RETRIES = int(os.getenv("CELERY_NETWORK_FAILURE_MAX_RETRIES", 3))
     CELERY_NETWORK_FAILURE_RETRY_BACKOFF = int(os.getenv("CELERY_NETWORK_FAILURE_RETRY_BACKOFF", 5))
     CELERY_NETWORK_FAILURE_RETRY_JITTER = bool(os.getenv("CELERY_NETWORK_FAILURE_RETRY_JITTER", True))
 
     # --- Fix #3: Celery-level guardrails against a hung task (see src/config/__init__.py) ---
-    CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", 60))
-    CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", 45))
+    CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", 40))
+    CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", 30))
 
     # --- Fix #2: default outbound HTTP timeout (seconds) used by requestHandler ---
     DEFAULT_HTTP_TIMEOUT_SECONDS = float(os.getenv("DEFAULT_HTTP_TIMEOUT_SECONDS", 5))

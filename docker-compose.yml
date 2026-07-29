@@ -28,7 +28,7 @@ x-app-env: &app-env
   # Broker = Postgres via kombu's `sqla+` transport (matches
   # erp-managment's `.env`), NOT Redis -- see src/config/config.py.
   CELERY_BROKER_URL: sqla+postgresql://postgres:postgres@postgres:5432/erp_celery_poc
-  DB_WRITE_TASK_INTERVAL_SECONDS: "15"
+  DB_WRITE_TASK_INTERVAL_SECONDS: "5"
   # Shortened for local demo purposes (real service: hourly cleanup /
   # 1-day retention, see .env.example) so the purge is observable quickly.
   KOMBU_MESSAGE_CLEANUP_INTERVAL_SECONDS: "30"
