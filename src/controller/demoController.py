@@ -25,7 +25,7 @@ class DemoController:
     @staticmethod
     @celery.task(bind=True)
     def db_write_task(self):
-        time.sleep(35)
+        time.sleep(20)
         task = Task()
         task.id = uuid.uuid4()
         task.type = "demo"
